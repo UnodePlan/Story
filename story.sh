@@ -7,9 +7,9 @@ YELLOW='\033[0;33m'
 NC='\033[0m' # No Color
 
 # Check if the script is run as root
-if [ "$(id -u)" != "0" ]; then
+if [ "$(id -u)" -ne "0" ]; then
     echo -e "${RED}This script needs to be run as root.${NC}"
-    echo -e "${RED}Please use 'sudo -i' to switch to the root user, then run the script again.${NC}"
+    echo -e "${RED}Please use 'sudo -i' to switch to root and run the script again.${NC}"
     exit 1
 fi
 
@@ -21,14 +21,14 @@ install_dependencies() {
 
 # Install Node.js and npm
 install_nodejs_and_npm() {
-    if command -v node > /dev/null 2>&1; then
+    if command -v node > /dev/null; then
         echo -e "${GREEN}Node.js is already installed. Version: $(node -v)${NC}"
     else
         echo -e "${YELLOW}Node.js not found. Installing...${NC}"
         curl -fsSL https://deb.nodesource.com/setup_16.x | sudo -E bash -
         sudo apt-get install -y nodejs
     fi
-    if command -v npm > /dev/null 2>&1; then
+    if command -v npm > /dev/null; then
         echo -e "${GREEN}npm is already installed. Version: $(npm -v)${NC}"
     else
         echo -e "${YELLOW}npm not found. Installing...${NC}"
@@ -38,7 +38,7 @@ install_nodejs_and_npm() {
 
 # Install PM2
 install_pm2() {
-    if command -v pm2 > /dev/null 2>&1; then
+    if command -v pm2 > /dev/null; then
         echo -e "${GREEN}PM2 is already installed. Version: $(pm2 -v)${NC}"
     else
         echo -e "${YELLOW}PM2 not found. Installing...${NC}"
@@ -81,27 +81,17 @@ install_story_node() {
     echo -e "${GREEN}Story data root: ${STORY_DATA_ROOT}${NC}"
     echo -e "${GREEN}Geth data root: ${GETH_DATA_ROOT}${NC}"
 
-    # Setup execution client
+    # Setup and run execution client
     echo -e "${YELLOW}Setting up execution client...${NC}"
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        sudo xattr -rd com.apple.quarantine ./geth
-    fi
-
-    # Run execution client with PM2
+    [[ "$OSTYPE" == "darwin"* ]] && sudo xattr -rd com.apple.quarantine ./geth
     cp /root/geth-linux-amd64-0.9.2-ea9f0d2/geth /usr/local/bin
     pm2 start /usr/local/bin/geth --name story-geth -- --iliad --syncmode full
 
-    # Setup consensus client
+    # Setup and run consensus client
     echo -e "${YELLOW}Setting up consensus client...${NC}"
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        sudo xattr -rd com.apple.quarantine ./story
-    fi
-
-    # Initialize consensus client
+    [[ "$OSTYPE" == "darwin"* ]] && sudo xattr -rd com.apple.quarantine ./story
     cp /root/story-linux-amd64-0.9.11-2a25df1/story /usr/local/bin
     /usr/local/bin/story init --network iliad
-
-    # Run consensus client with PM2
     pm2 start /usr/local/bin/story --name story-client -- run
 
     echo -e "${GREEN}Story node installation completed!${NC}"
@@ -124,13 +114,10 @@ check_status() {
 # Check .env file and read private key
 check_env_file() {
     if [ -f ".env" ]; then
-        # Read PRIVATE_KEY from .env file
         source .env
         echo -e "${GREEN}.env file loaded. Private key: ${PRIVATE_KEY}${NC}"
     else
-        # Prompt user to input private key if .env file does not exist
-        read -p "Please enter your ETH wallet private key (ensure no 0x prefix): " PRIVATE_KEY
-        # Create .env file
+        read -p "Please enter your ETH wallet private key (no 0x prefix): " PRIVATE_KEY
         echo "# ~/story/.env" > .env
         echo "PRIVATE_KEY=${PRIVATE_KEY}" >> .env
         echo -e "${GREEN}.env file created. Content:${NC}"
@@ -142,10 +129,8 @@ check_env_file() {
 # Setup validator
 setup_validator() {
     echo -e "${YELLOW}Setting up validator...${NC}"
-    # Check .env file and read private key
     check_env_file
 
-    # Prompt user for validator actions
     echo -e "${YELLOW}You can perform the following validator actions:${NC}"
     echo "1. Export validator key"
     echo "2. Create new validator"
