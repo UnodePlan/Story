@@ -1,4 +1,4 @@
-Script and tutorial by Unode  
+Script and tutorial by Unode 
 X: https://x.com/UnodePlan  
 Telegram group: https://t.me/unode_plan
 Discord community: https://discord.gg/S2F2YPCP
