@@ -62,12 +62,19 @@ install_story_node() {
     install_pm2
 
     echo "Starting Story node installation..."
+
     download_and_extract "https://story-geth-binaries.s3.us-west-1.amazonaws.com/geth-public/geth-linux-amd64-0.9.2-ea9f0d2.tar.gz" "/usr/local/bin"
     download_and_extract "https://story-geth-binaries.s3.us-west-1.amazonaws.com/story-public/story-linux-amd64-0.9.11-2a25df1.tar.gz" "/usr/local/bin"
 
     echo "Default data folders:"
     echo "Story data root: ${STORY_DATA_ROOT:-/var/lib/story}"
     echo "Geth data root: ${GETH_DATA_ROOT:-/var/lib/geth}"
+
+    # Check if geth is present
+    if [ ! -f /usr/local/bin/geth ]; then
+        echo "Error: /usr/local/bin/geth not found. Please check the download and extraction process."
+        exit 1
+    fi
 
     # Start execution client
     pm2 start /usr/local/bin/geth --name story-geth -- --iliad --syncmode full || { echo "Failed to start story-geth"; exit 1; }
@@ -78,6 +85,7 @@ install_story_node() {
 
     echo "Story node installation completed!"
 }
+
 
 # Clear and reinitialize the node
 clear_state() {
