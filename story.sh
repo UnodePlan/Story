@@ -63,7 +63,7 @@ install_story_node() {
 
     echo "Starting Story node installation..."
 
-    # 下载和解压缩 geth 和 story 客户端
+    # 下载和解压 geth 和 story 客户端
     download_and_extract "https://story-geth-binaries.s3.us-west-1.amazonaws.com/geth-public/geth-linux-amd64-0.9.2-ea9f0d2.tar.gz" "/usr/local/bin"
     download_and_extract "https://story-geth-binaries.s3.us-west-1.amazonaws.com/story-public/story-linux-amd64-0.9.11-2a25df1.tar.gz" "/usr/local/bin"
 
@@ -86,6 +86,7 @@ install_story_node() {
 
     echo "Story node installation completed!"
 }
+
 
 
 
