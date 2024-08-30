@@ -42,6 +42,19 @@ install_pm2() {
     fi
 }
 
+# Download and extract files
+download_and_extract() {
+    local url=$1
+    local dest=$2
+    local file=$(basename "$url")
+
+    echo "Downloading $file..."
+    wget -q "$url" -O "$file" || { echo "Failed to download $file"; exit 1; }
+    echo "Extracting $file..."
+    tar -xzf "$file" -C "$dest" || { echo "Failed to extract $file"; exit 1; }
+    rm "$file"
+}
+
 # Install Story node
 install_story_node() {
     install_dependencies
@@ -49,24 +62,16 @@ install_story_node() {
     install_pm2
 
     echo "Starting Story node installation..."
-
-    # Download and extract Story node client
-    wget -q https://story-geth-binaries.s3.us-west-1.amazonaws.com/geth-public/geth-linux-amd64-0.9.2-ea9f0d2.tar.gz
-    wget -q https://story-geth-binaries.s3.us-west-1.amazonaws.com/story-public/story-linux-amd64-0.9.11-2a25df1.tar.gz
-
-    tar -xzf geth-linux-amd64-0.9.2-ea9f0d2.tar.gz -C /usr/local/bin
-    tar -xzf story-linux-amd64-0.9.11-2a25df1.tar.gz -C /usr/local/bin
+    download_and_extract "https://story-geth-binaries.s3.us-west-1.amazonaws.com/geth-public/geth-linux-amd64-0.9.2-ea9f0d2.tar.gz" "/usr/local/bin"
+    download_and_extract "https://story-geth-binaries.s3.us-west-1.amazonaws.com/story-public/story-linux-amd64-0.9.11-2a25df1.tar.gz" "/usr/local/bin"
 
     echo "Default data folders:"
-    echo "Story data root: ${STORY_DATA_ROOT}"
-    echo "Geth data root: ${GETH_DATA_ROOT}"
+    echo "Story data root: ${STORY_DATA_ROOT:-/var/lib/story}"
+    echo "Geth data root: ${GETH_DATA_ROOT:-/var/lib/geth}"
 
-    # Start execution client
-    pm2 start /usr/local/bin/geth --name story-geth -- --iliad --syncmode full
-
-    # Initialize and run consensus client
-    /usr/local/bin/story init --network iliad
-    pm2 start /usr/local/bin/story --name story-client -- run
+    pm2 start /usr/local/bin/geth --name story-geth -- --iliad --syncmode full || { echo "Failed to start story-geth"; exit 1; }
+    /usr/local/bin/story init --network iliad || { echo "Failed to initialize story"; exit 1; }
+    pm2 start /usr/local/bin/story --name story-client -- run || { echo "Failed to start story-client"; exit 1; }
 
     echo "Story node installation completed!"
 }
@@ -74,8 +79,8 @@ install_story_node() {
 # Clear and reinitialize the node
 clear_state() {
     echo "Clearing state and reinitializing the node..."
-    rm -rf "${GETH_DATA_ROOT}" && pm2 restart story-geth
-    rm -rf "${STORY_DATA_ROOT}" && /usr/local/bin/story init --network iliad && pm2 restart story-client
+    rm -rf "${GETH_DATA_ROOT:-/var/lib/geth}" && pm2 restart story-geth
+    rm -rf "${STORY_DATA_ROOT:-/var/lib/story}" && /usr/local/bin/story init --network iliad && pm2 restart story-client
 }
 
 # Check the status of the node
@@ -117,7 +122,7 @@ setup_validator() {
     read -p "Enter option (1-9): " OPTION
 
     case $OPTION in
-    1) export_validator_key ;;
+    1) /usr/local/bin/story validator export ;;
     2) create_validator ;;
     3) stake_to_validator ;;
     4) unstake_from_validator ;;
@@ -130,20 +135,13 @@ setup_validator() {
     esac
 }
 
-# Export validator key
-export_validator_key() {
-    echo "Exporting validator key..."
-    /usr/local/bin/story validator export
-}
-
-# Create new validator
+# Validator operations
 create_validator() {
     read -p "Enter stake amount (in IP): " STAKE_AMOUNT_IP
     STAKE_AMOUNT_WEI=$((STAKE_AMOUNT_IP * 10**18))
     /usr/local/bin/story validator create --stake ${STAKE_AMOUNT_WEI}
 }
 
-# Stake to existing validator
 stake_to_validator() {
     read -p "Enter validator public key (Base64 format): " VALIDATOR_PUBKEY_BASE64
     read -p "Enter stake amount (in IP): " STAKE_AMOUNT_IP
@@ -151,7 +149,6 @@ stake_to_validator() {
     /usr/local/bin/story validator stake --validator-pubkey ${VALIDATOR_PUBKEY_BASE64} --stake ${STAKE_AMOUNT_WEI}
 }
 
-# Unstake
 unstake_from_validator() {
     read -p "Enter validator public key (Base64 format): " VALIDATOR_PUBKEY_BASE64
     read -p "Enter unstake amount (in IP): " UNSTAKE_AMOUNT_IP
@@ -159,7 +156,6 @@ unstake_from_validator() {
     /usr/local/bin/story validator unstake --validator-pubkey ${VALIDATOR_PUBKEY_BASE64} --unstake ${UNSTAKE_AMOUNT_WEI}
 }
 
-# Stake on behalf of others
 stake_on_behalf() {
     read -p "Enter delegator public key (Base64 format): " DELEGATOR_PUBKEY_BASE64
     read -p "Enter validator public key (Base64 format): " VALIDATOR_PUBKEY_BASE64
@@ -168,7 +164,6 @@ stake_on_behalf() {
     /usr/local/bin/story validator stake-on-behalf --delegator-pubkey ${DELEGATOR_PUBKEY_BASE64} --validator-pubkey ${VALIDATOR_PUBKEY_BASE64} --stake ${STAKE_AMOUNT_WEI}
 }
 
-# Unstake on behalf of others
 unstake_on_behalf() {
     read -p "Enter delegator public key (Base64 format): " DELEGATOR_PUBKEY_BASE64
     read -p "Enter validator public key (Base64 format): " VALIDATOR_PUBKEY_BASE64
@@ -177,19 +172,16 @@ unstake_on_behalf() {
     /usr/local/bin/story validator unstake-on-behalf --delegator-pubkey ${DELEGATOR_PUBKEY_BASE64} --validator-pubkey ${VALIDATOR_PUBKEY_BASE64} --unstake ${UNSTAKE_AMOUNT_WEI}
 }
 
-# Add operator
 add_operator() {
     read -p "Enter operator's EVM address: " OPERATOR_ADDRESS
     /usr/local/bin/story validator add-operator --operator ${OPERATOR_ADDRESS}
 }
 
-# Remove operator
 remove_operator() {
     read -p "Enter operator's EVM address: " OPERATOR_ADDRESS
     /usr/local/bin/story validator remove-operator --operator ${OPERATOR_ADDRESS}
 }
 
-# Set withdrawal address
 set_withdrawal_address() {
     read -p "Enter new withdrawal address: " WITHDRAWAL_ADDRESS
     /usr/local/bin/story validator set-withdrawal-address --address ${WITHDRAWAL_ADDRESS}
@@ -209,23 +201,4 @@ main_menu() {
     echo "======================================================================="
     echo "Please select the operation to perform:"
     echo "1. Install Story node"
-    echo "2. Clear state and reinitialize"
-    echo "3. Check node status"
-    echo "4. Setup validator"
-    echo "5. Exit"
-    read -p "Enter option (1-5): " OPTION
-
-    case $OPTION in
-    1) install_story_node ;;
-    2) clear_state ;;
-    3) check_status ;;
-    4) setup_validator ;;
-     5) exit 0 ;;
-    *) echo "Invalid option." ;;
-    esac
-}
-
-# Ensure the script runs with root privileges and display the main menu
-check_root
-load_env_file
-main_menu
+    echo "2. Clear state
