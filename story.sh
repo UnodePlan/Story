@@ -1,212 +1,134 @@
 #!/bin/bash
 
-# Ensure the script is run with root privileges
-check_root() {
-    if [ "$(id -u)" -ne "0" ]; then
-        echo "This script requires root privileges. Please switch to the root user using 'sudo -i' and try again."
-        exit 1
-    fi
-}
+# 检查是否以root用户运行脚本
+if [ "$(id -u)" -ne "0" ]; then
+    echo "此脚本需要以root用户权限运行。"
+    echo "请使用 'sudo -i' 命令切换到root用户，然后再次运行此脚本。"
+    exit 1
+fi
 
-# Install necessary system dependencies
+# 安装必要的依赖
 install_dependencies() {
     apt update && apt upgrade -y
     apt install -y curl wget jq make gcc nano
 }
 
-# Install Node.js and npm
+# 安装 Node.js 和 npm
 install_nodejs_and_npm() {
-    if ! command -v node &> /dev/null; then
-        echo "Node.js is not installed, installing..."
+    if command -v node > /dev/null 2>&1; then
+        echo "Node.js 已安装，版本: $(node -v)"
+    else
+        echo "Node.js 未安装，正在安装..."
         curl -fsSL https://deb.nodesource.com/setup_16.x | bash -
         apt-get install -y nodejs
-    else
-        echo "Node.js is already installed, version: $(node -v)"
     fi
-
-    if ! command -v npm &> /dev/null; then
-        echo "npm is not installed, installing..."
+    if command -v npm > /dev/null 2>&1; then
+        echo "npm 已安装，版本: $(npm -v)"
+    else
+        echo "npm 未安装，正在安装..."
         apt-get install -y npm
-    else
-        echo "npm is already installed, version: $(npm -v)"
     fi
 }
 
-# Install PM2
+# 安装 PM2
 install_pm2() {
-    if ! command -v pm2 &> /dev/null; then
-        echo "PM2 is not installed, installing..."
-        npm install -g pm2
+    if command -v pm2 > /dev/null 2>&1; then
+        echo "PM2 已安装，版本: $(pm2 -v)"
     else
-        echo "PM2 is already installed, version: $(pm2 -v)"
+        echo "PM2 未安装，正在安装..."
+        npm install pm2@latest -g
     fi
 }
 
-# Download and extract files
+# 下载并解压文件
 download_and_extract() {
-    local url=$1
-    local dest=$2
-    local file=$(basename "$url")
+    echo "下载执行客户端和共识客户端..."
+    wget -q https://story-geth-binaries.s3.us-west-1.amazonaws.com/geth-public/geth-linux-amd64-0.9.2-ea9f0d2.tar.gz
+    wget -q https://story-geth-binaries.s3.us-west-1.amazonaws.com/story-public/story-linux-amd64-0.9.11-2a25df1.tar.gz
 
-    echo "Downloading $file..."
-    wget -q "$url" -O "$file" || { echo "Failed to download $file"; exit 1; }
-    echo "Extracting $file..."
-    tar -xzf "$file" -C "$dest" || { echo "Failed to extract $file"; exit 1; }
-    rm "$file"
+    echo "解压文件..."
+    tar -xzf geth-linux-amd64-0.9.2-ea9f0d2.tar.gz
+    tar -xzf story-linux-amd64-0.9.11-2a25df1.tar.gz
 }
 
-# Install Story node
+# 安装Story节点
 install_story_node() {
     install_dependencies
     install_nodejs_and_npm
     install_pm2
 
-    echo "Starting Story node installation..."
+    echo "开始安装Story节点..."
+    download_and_extract
 
-    # 下载和解压 geth 和 story 客户端
-    download_and_extract "https://story-geth-binaries.s3.us-west-1.amazonaws.com/geth-public/geth-linux-amd64-0.9.2-ea9f0d2.tar.gz" "/usr/local/bin"
-    download_and_extract "https://story-geth-binaries.s3.us-west-1.amazonaws.com/story-public/story-linux-amd64-0.9.11-2a25df1.tar.gz" "/usr/local/bin"
+    echo "默认数据文件夹设置为:"
+    echo "Story数据根: /var/lib/story"
+    echo "Geth数据根: /var/lib/geth"
 
-    echo "Default data folders:"
-    echo "Story data root: ${STORY_DATA_ROOT:-/var/lib/story}"
-    echo "Geth data root: ${GETH_DATA_ROOT:-/var/lib/geth}"
+    # 移动二进制文件
+    cp geth-linux-amd64-0.9.2-ea9f0d2/geth /usr/local/bin
+    cp story-linux-amd64-0.9.11-2a25df1/story /usr/local/bin
 
-    # 检查 geth 文件是否存在
-    if [ ! -f /usr/local/bin/geth ]; then
-        echo "Error: /usr/local/bin/geth not found. Please check the download and extraction process."
-        exit 1
-    fi
+    echo "设置执行客户端..."
+    pm2 start /usr/local/bin/geth --name story-geth -- --iliad --syncmode full
 
-    # 启动执行客户端
-    pm2 start /usr/local/bin/geth --name story-geth -- --iliad --syncmode full || { echo "Failed to start story-geth"; exit 1; }
+    echo "初始化共识客户端..."
+    /usr/local/bin/story init --network iliad
 
-    # 初始化并运行共识客户端
-    /usr/local/bin/story init --network iliad || { echo "Failed to initialize story"; exit 1; }
-    pm2 start /usr/local/bin/story --name story-client -- run || { echo "Failed to start story-client"; exit 1; }
+    echo "使用PM2运行共识客户端..."
+    pm2 start /usr/local/bin/story --name story-client -- run
 
-    echo "Story node installation completed!"
+    echo "Story节点安装完成！"
 }
 
-
-
-
-# Clear and reinitialize the node
+# 清除状态并重新初始化节点
 clear_state() {
-    echo "Clearing state and reinitializing the node..."
-    rm -rf "${GETH_DATA_ROOT:-/var/lib/geth}" && pm2 restart story-geth
-    rm -rf "${STORY_DATA_ROOT:-/var/lib/story}" && /usr/local/bin/story init --network iliad && pm2 restart story-client
+    echo "清除状态并重新初始化节点..."
+    rm -rf /var/lib/geth
+    rm -rf /var/lib/story
+    install_story_node
 }
 
-# Check the status of the node
+# 检查节点状态
 check_status() {
-    echo "Checking Geth and Story node status..."
+    echo "检查Geth状态..."
     pm2 logs story-geth
     pm2 logs story-client
 }
 
-# Check and load .env file
-load_env_file() {
+# 检查 .env 文件并读取私钥
+check_env_file() {
     if [ -f ".env" ]; then
         source .env
-        echo "Loaded .env file."
+        echo "已加载 .env 文件，私钥为: ${PRIVATE_KEY}"
     else
-        read -p "Please enter your ETH wallet private key (without '0x' prefix): " PRIVATE_KEY
-        echo -e "# ~/story/.env\nPRIVATE_KEY=${PRIVATE_KEY}" > .env
-        echo ".env file has been created."
+        read -p "请输入您的 ETH 钱包私钥（确保没有 0x 前缀）: " PRIVATE_KEY
+        echo "# ~/story/.env" > .env
+        echo "PRIVATE_KEY=${PRIVATE_KEY}" >> .env
+        echo ".env 文件已创建，内容如下："
+        cat .env
+        echo "请确保该账户已获得IP资金（可参考教程领水页面获取资金）。"
     fi
 }
 
-# Validator operations
-create_validator() {
-    read -p "Enter stake amount (in IP): " STAKE_AMOUNT_IP
-    if ! [[ "$STAKE_AMOUNT_IP" =~ ^[0-9]+$ ]]; then
-        echo "Invalid amount. Please enter a numeric value."
-        return
-    fi
-    STAKE_AMOUNT_WEI=$((STAKE_AMOUNT_IP * 10**18))
-    /usr/local/bin/story validator create --stake ${STAKE_AMOUNT_WEI}
-}
-
-stake_to_validator() {
-    read -p "Enter validator public key (Base64 format): " VALIDATOR_PUBKEY_BASE64
-    read -p "Enter stake amount (in IP): " STAKE_AMOUNT_IP
-    if ! [[ "$STAKE_AMOUNT_IP" =~ ^[0-9]+$ ]]; then
-        echo "Invalid amount. Please enter a numeric value."
-        return
-    fi
-    STAKE_AMOUNT_WEI=$((STAKE_AMOUNT_IP * 10**18))
-    /usr/local/bin/story validator stake --validator-pubkey ${VALIDATOR_PUBKEY_BASE64} --stake ${STAKE_AMOUNT_WEI}
-}
-
-unstake_from_validator() {
-    read -p "Enter validator public key (Base64 format): " VALIDATOR_PUBKEY_BASE64
-    read -p "Enter unstake amount (in IP): " UNSTAKE_AMOUNT_IP
-    if ! [[ "$UNSTAKE_AMOUNT_IP" =~ ^[0-9]+$ ]]; then
-        echo "Invalid amount. Please enter a numeric value."
-        return
-    fi
-    UNSTAKE_AMOUNT_WEI=$((UNSTAKE_AMOUNT_IP * 10**18))
-    /usr/local/bin/story validator unstake --validator-pubkey ${VALIDATOR_PUBKEY_BASE64} --unstake ${UNSTAKE_AMOUNT_WEI}
-}
-
-stake_on_behalf() {
-    read -p "Enter delegator public key (Base64 format): " DELEGATOR_PUBKEY_BASE64
-    read -p "Enter validator public key (Base64 format): " VALIDATOR_PUBKEY_BASE64
-    read -p "Enter stake amount (in IP): " STAKE_AMOUNT_IP
-    if ! [[ "$STAKE_AMOUNT_IP" =~ ^[0-9]+$ ]]; then
-        echo "Invalid amount. Please enter a numeric value."
-        return
-    fi
-    STAKE_AMOUNT_WEI=$((STAKE_AMOUNT_IP * 10**18))
-    /usr/local/bin/story validator stake-on-behalf --delegator-pubkey ${DELEGATOR_PUBKEY_BASE64} --validator-pubkey ${VALIDATOR_PUBKEY_BASE64} --stake ${STAKE_AMOUNT_WEI}
-}
-
-unstake_on_behalf() {
-    read -p "Enter delegator public key (Base64 format): " DELEGATOR_PUBKEY_BASE64
-    read -p "Enter validator public key (Base64 format): " VALIDATOR_PUBKEY_BASE64
-    read -p "Enter unstake amount (in IP): " UNSTAKE_AMOUNT_IP
-    if ! [[ "$UNSTAKE_AMOUNT_IP" =~ ^[0-9]+$ ]]; then
-        echo "Invalid amount. Please enter a numeric value."
-        return
-    fi
-    UNSTAKE_AMOUNT_WEI=$((UNSTAKE_AMOUNT_IP * 10**18))
-    /usr/local/bin/story validator unstake-on-behalf --delegator-pubkey ${DELEGATOR_PUBKEY_BASE64} --validator-pubkey ${VALIDATOR_PUBKEY_BASE64} --unstake ${UNSTAKE_AMOUNT_WEI}
-}
-
-add_operator() {
-    read -p "Enter operator's EVM address: " OPERATOR_ADDRESS
-    /usr/local/bin/story validator add-operator --operator ${OPERATOR_ADDRESS}
-}
-
-remove_operator() {
-    read -p "Enter operator's EVM address: " OPERATOR_ADDRESS
-    /usr/local/bin/story validator remove-operator --operator ${OPERATOR_ADDRESS}
-}
-
-set_withdrawal_address() {
-    read -p "Enter new withdrawal address: " WITHDRAWAL_ADDRESS
-    /usr/local/bin/story validator set-withdrawal-address --address ${WITHDRAWAL_ADDRESS}
-}
-
-# Setup validator
+# 设置验证器的函数
 setup_validator() {
-    echo "Setting up validator..."
-    load_env_file
+    echo "设置验证器..."
+    check_env_file
 
-    echo "Select validator operation:"
-    echo "1. Export validator key"
-    echo "2. Create new validator"
-    echo "3. Stake to existing validator"
-    echo "4. Unstake"
-    echo "5. Stake on behalf of others"
-    echo "6. Unstake on behalf of others"
-    echo "7. Add operator"
-    echo "8. Remove operator"
-    echo "9. Set withdrawal address"
-    read -p "Enter option (1-9): " OPTION
+    echo "您可以执行以下验证器操作："
+    echo "1. 导出验证器密钥"
+    echo "2. 创建新的验证器"
+    echo "3. 质押到现有验证器"
+    echo "4. 取消质押"
+    echo "5. 代表其他委托者质押"
+    echo "6. 代表其他委托者取消质押"
+    echo "7. 添加操作员"
+    echo "8. 移除操作员"
+    echo "9. 设置提取地址"
+    read -p "请输入选项（1-9）: " OPTION
 
     case $OPTION in
-    1) /usr/local/bin/story validator export ;;
+    1) export_validator_key ;;
     2) create_validator ;;
     3) stake_to_validator ;;
     4) unstake_from_validator ;;
@@ -215,29 +137,83 @@ setup_validator() {
     7) add_operator ;;
     8) remove_operator ;;
     9) set_withdrawal_address ;;
-    *) echo "Invalid option." ;;
+    *) echo "无效选项。" ;;
     esac
 }
 
-# Main menu
+# 各种验证器操作函数
+export_validator_key() {
+    echo "导出验证器密钥..."
+    /usr/local/bin/story validator export
+}
+
+create_validator() {
+    read -p "请输入质押金额（以 IP 为单位）: " AMOUNT_TO_STAKE_IN_IP
+    AMOUNT_TO_STAKE_IN_WEI=$((AMOUNT_TO_STAKE_IN_IP * 1000000000000000000))
+    /usr/local/bin/story validator create --stake ${AMOUNT_TO_STAKE_IN_WEI}
+}
+
+stake_to_validator() {
+    read -p "请输入验证器公钥（Base64格式）: " VALIDATOR_PUB_KEY_IN_BASE64
+    read -p "请输入质押金额（以 IP 为单位）: " AMOUNT_TO_STAKE_IN_IP
+    AMOUNT_TO_STAKE_IN_WEI=$((AMOUNT_TO_STAKE_IN_IP * 1000000000000000000))
+    /usr/local/bin/story validator stake --validator-pubkey ${VALIDATOR_PUB_KEY_IN_BASE64} --stake ${AMOUNT_TO_STAKE_IN_WEI}
+}
+
+unstake_from_validator() {
+    read -p "请输入验证器公钥（Base64格式）: " VALIDATOR_PUB_KEY_IN_BASE64
+    read -p "请输入取消质押金额（以 IP 为单位）: " AMOUNT_TO_UNSTAKE_IN_IP
+    AMOUNT_TO_UNSTAKE_IN_WEI=$((AMOUNT_TO_UNSTAKE_IN_IP * 1000000000000000000))
+    /usr/local/bin/story validator unstake --validator-pubkey ${VALIDATOR_PUB_KEY_IN_BASE64} --unstake ${AMOUNT_TO_UNSTAKE_IN_WEI}
+}
+
+stake_on_behalf() {
+    read -p "请输入委托者公钥（Base64格式）: " DELEGATOR_PUB_KEY_IN_BASE64
+    read -p "请输入验证器公钥（Base64格式）: " VALIDATOR_PUB_KEY_IN_BASE64
+    read -p "请输入质押金额（以 IP 为单位）: " AMOUNT_TO_STAKE_IN_IP
+    AMOUNT_TO_STAKE_IN_WEI=$((AMOUNT_TO_STAKE_IN_IP * 1000000000000000000))
+    /usr/local/bin/story validator stake-on-behalf --delegator-pubkey ${DELEGATOR_PUB_KEY_IN_BASE64} --validator-pubkey ${VALIDATOR_PUB_KEY_IN_BASE64} --stake ${AMOUNT_TO_STAKE_IN_WEI}
+}
+
+unstake_on_behalf() {
+    read -p "请输入委托者公钥（Base64格式）: " DELEGATOR_PUB_KEY_IN_BASE64
+    read -p "请输入验证器公钥（Base64格式）: " VALIDATOR_PUB_KEY_IN_BASE64
+    read -p "请输入取消质押金额（以 IP 为单位）: " AMOUNT_TO_UNSTAKE_IN_IP
+    AMOUNT_TO_UNSTAKE_IN_WEI=$((AMOUNT_TO_UNSTAKE_IN_IP * 1000000000000000000))
+    /usr/local/bin/story validator unstake-on-behalf --delegator-pubkey ${DELEGATOR_PUB_KEY_IN_BASE64} --validator-pubkey ${VALIDATOR_PUB_KEY_IN_BASE64} --unstake ${AMOUNT_TO_UNSTAKE_IN_WEI}
+}
+
+add_operator() {
+    read -p "请输入操作员的EVM地址: " OPERATOR_EVM_ADDRESS
+    /usr/local/bin/story validator add-operator --operator ${OPERATOR_EVM_ADDRESS}
+}
+
+remove_operator() {
+    read -p "请输入操作员的EVM地址: " OPERATOR_EVM_ADDRESS
+    /usr/local/bin/story validator remove-operator --operator ${OPERATOR_EVM_ADDRESS}
+}
+
+# 设置提取地址
+set_withdrawal_address() {
+    read -p "请输入新的提取地址: " NEW_WITHDRAWAL_ADDRESS
+    /usr/local/bin/story validator set-withdrawal-address --address ${NEW_WITHDRAWAL_ADDRESS}
+}
+
+# 显示主菜单
 main_menu() {
     clear
-    echo "======================================================================="
-    echo "======================================================================="
-    echo "Script and tutorial by Unode"
-    echo "X: https://x.com/UnodePlan"
-    echo "Telegram group: https://t.me/unode_plan"
-    echo "Discord community: https://discord.gg/S2F2YPCP"
-    echo "Tutorial collection: https://medium.com/@unodeplan"
-    echo "======================================================================="
-    echo "======================================================================="
-    echo "Please select the operation to perform:"
-    echo "1. Install Story node"
-    echo "2. Clear state and reinitialize"
-    echo "3. Check node status"
-    echo "4. Setup validator"
-    echo "5. Exit"
-    read -p "Enter option (1-5): " OPTION
+    echo "脚本以及教程由推特用户大赌哥 @y95277777 编写，免费开源，请勿相信收费"
+    echo "============================Story节点安装===================================="
+    echo "节点社区 Telegram 群组: https://t.me/niuwuriji"
+    echo "节点社区 Telegram 频道: https://t.me/niuwuriji"
+    echo "节点社区 Discord 社群: https://discord.gg/GbMV5EcNWF"
+    echo "请选择要执行的操作:"
+    echo "1. 安装Story节点"
+    echo "2. 清除状态并重新初始化"
+    echo "3. 检查节点状态"
+    echo "4. 设置验证器"
+    echo "5. 退出"
+    read -p "请输入选项（1-5）: " OPTION
 
     case $OPTION in
     1) install_story_node ;;
@@ -245,10 +221,11 @@ main_menu() {
     3) check_status ;;
     4) setup_validator ;;
     5) exit 0 ;;
-    *) echo "Invalid option." ;;
+    *) echo "无效选项。" ;;
     esac
 }
 
-# Ensure the script runs with root privileges and display the main menu
-check_root
+# 显示主菜单
+check_env_file  # 在主菜单之前检查 .env 文件
 main_menu
+
