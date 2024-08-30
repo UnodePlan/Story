@@ -4,16 +4,16 @@
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+WHITE='\033[0;37m'
 NC='\033[0m' # No Color
 
 # Check if the script is run as root
-check_root() {
-    if [ "$(id -u)" -ne "0" ]; then
-        echo -e "${RED}This script needs to be run as root.${NC}"
-        echo -e "${RED}Please use 'sudo -i' to switch to root and run the script again.${NC}"
-        exit 1
-    fi
-}
+if [ "$(id -u)" -ne "0" ]; then
+    echo -e "${RED}This script needs to be run as root.${NC}"
+    echo -e "${RED}Please use 'sudo -i' to switch to root and run the script again.${NC}"
+    exit 1
+fi
 
 # Install necessary dependencies
 install_dependencies() {
@@ -23,29 +23,28 @@ install_dependencies() {
 
 # Install Node.js and npm
 install_nodejs_and_npm() {
-    if ! command -v node > /dev/null; then
+    if command -v node > /dev/null; then
+        echo -e "${GREEN}Node.js is already installed. Version: $(node -v)${NC}"
+    else
         echo -e "${YELLOW}Node.js not found. Installing...${NC}"
         curl -fsSL https://deb.nodesource.com/setup_16.x | sudo -E bash -
         sudo apt-get install -y nodejs
-    else
-        echo -e "${GREEN}Node.js is already installed. Version: $(node -v)${NC}"
     fi
-
-    if ! command -v npm > /dev/null; then
+    if command -v npm > /dev/null; then
+        echo -e "${GREEN}npm is already installed. Version: $(npm -v)${NC}"
+    else
         echo -e "${YELLOW}npm not found. Installing...${NC}"
         sudo apt-get install -y npm
-    else
-        echo -e "${GREEN}npm is already installed. Version: $(npm -v)${NC}"
     fi
 }
 
 # Install PM2
 install_pm2() {
-    if ! command -v pm2 > /dev/null; then
+    if command -v pm2 > /dev/null; then
+        echo -e "${GREEN}PM2 is already installed. Version: $(pm2 -v)${NC}"
+    else
         echo -e "${YELLOW}PM2 not found. Installing...${NC}"
         npm install pm2@latest -g
-    else
-        echo -e "${GREEN}PM2 is already installed. Version: $(pm2 -v)${NC}"
     fi
 }
 
@@ -85,29 +84,19 @@ install_story_node() {
     echo -e "${GREEN}Geth data root: ${GETH_DATA_ROOT}${NC}"
 
     # Setup and run execution client
-    setup_execution_client
-
-    # Setup and run consensus client
-    setup_consensus_client
-
-    echo -e "${GREEN}Story node installation completed!${NC}"
-}
-
-# Setup and run execution client
-setup_execution_client() {
     echo -e "${YELLOW}Setting up execution client...${NC}"
     [[ "$OSTYPE" == "darwin"* ]] && sudo xattr -rd com.apple.quarantine ./geth
     cp /root/geth-linux-amd64-0.9.2-ea9f0d2/geth /usr/local/bin
     pm2 start /usr/local/bin/geth --name story-geth -- --iliad --syncmode full
-}
 
-# Setup and run consensus client
-setup_consensus_client() {
+    # Setup and run consensus client
     echo -e "${YELLOW}Setting up consensus client...${NC}"
     [[ "$OSTYPE" == "darwin"* ]] && sudo xattr -rd com.apple.quarantine ./story
     cp /root/story-linux-amd64-0.9.11-2a25df1/story /usr/local/bin
     /usr/local/bin/story init --network iliad
     pm2 start /usr/local/bin/story --name story-client -- run
+
+    echo -e "${GREEN}Story node installation completed!${NC}"
 }
 
 # Clear state and reinitialize the node
@@ -119,7 +108,7 @@ clear_state() {
 
 # Check node status
 check_status() {
-    echo -e "${YELLOW}Checking node status...${NC}"
+    echo -e "${YELLOW}Checking Geth status...${NC}"
     pm2 logs story-geth
     pm2 logs story-client
 }
@@ -235,18 +224,23 @@ set_withdrawal_address() {
     /usr/local/bin/story validator set-withdrawal-address --address ${NEW_WITHDRAWAL_ADDRESS}
 }
 
+# Function to display the header with colors
+display_header() {
+    echo -e "${CYAN}=======================================================================${NC}"
+    echo -e "${CYAN}=======================================================================${NC}"
+    echo -e "${GREEN}Script and tutorial by Unode${NC}"
+    echo -e "${WHITE}X: ${CYAN}https://x.com/UnodePlan${NC}"
+    echo -e "${WHITE}Telegram group: ${CYAN}https://t.me/unode_plan${NC}"
+    echo -e "${WHITE}Discord community: ${CYAN}https://discord.gg/S2F2YPCP${NC}"
+    echo -e "${WHITE}Tutorial collection: ${CYAN}https://medium.com/@unodeplan${NC}"
+    echo -e "${CYAN}=======================================================================${NC}"
+    echo -e "${CYAN}=======================================================================${NC}"
+}
+
 # Main menu
 main_menu() {
     clear
-    echo "======================================================================="
-    echo "======================================================================="
-    echo "Script and tutorial by Unode"
-    echo "X: https://x.com/UnodePlan"
-    echo "Telegram group: https://t.me/unode_plan"
-    echo "Discord community: https://discord.gg/S2F2YPCP"
-    echo "Tutorial collection: https://medium.com/@unodeplan"
-    echo "======================================================================="
-    echo "======================================================================="
+    display_header
     echo -e "${YELLOW}Please choose an action:${NC}"
     echo "1. Install Story node"
     echo "2. Clear state and reinitialize"
