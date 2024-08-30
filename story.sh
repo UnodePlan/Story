@@ -69,7 +69,10 @@ install_story_node() {
     echo "Story data root: ${STORY_DATA_ROOT:-/var/lib/story}"
     echo "Geth data root: ${GETH_DATA_ROOT:-/var/lib/geth}"
 
+    # Start execution client
     pm2 start /usr/local/bin/geth --name story-geth -- --iliad --syncmode full || { echo "Failed to start story-geth"; exit 1; }
+
+    # Initialize and run consensus client
     /usr/local/bin/story init --network iliad || { echo "Failed to initialize story"; exit 1; }
     pm2 start /usr/local/bin/story --name story-client -- run || { echo "Failed to start story-client"; exit 1; }
 
@@ -94,14 +97,84 @@ check_status() {
 load_env_file() {
     if [ -f ".env" ]; then
         source .env
-        echo "Loaded .env file, private key is: ${PRIVATE_KEY}"
+        echo "Loaded .env file."
     else
         read -p "Please enter your ETH wallet private key (without '0x' prefix): " PRIVATE_KEY
         echo -e "# ~/story/.env\nPRIVATE_KEY=${PRIVATE_KEY}" > .env
-        echo ".env file has been created with the following content:"
-        cat .env
-        echo "Please ensure the account has IP funds."
+        echo ".env file has been created."
     fi
+}
+
+# Validator operations
+create_validator() {
+    read -p "Enter stake amount (in IP): " STAKE_AMOUNT_IP
+    if ! [[ "$STAKE_AMOUNT_IP" =~ ^[0-9]+$ ]]; then
+        echo "Invalid amount. Please enter a numeric value."
+        return
+    fi
+    STAKE_AMOUNT_WEI=$((STAKE_AMOUNT_IP * 10**18))
+    /usr/local/bin/story validator create --stake ${STAKE_AMOUNT_WEI}
+}
+
+stake_to_validator() {
+    read -p "Enter validator public key (Base64 format): " VALIDATOR_PUBKEY_BASE64
+    read -p "Enter stake amount (in IP): " STAKE_AMOUNT_IP
+    if ! [[ "$STAKE_AMOUNT_IP" =~ ^[0-9]+$ ]]; then
+        echo "Invalid amount. Please enter a numeric value."
+        return
+    fi
+    STAKE_AMOUNT_WEI=$((STAKE_AMOUNT_IP * 10**18))
+    /usr/local/bin/story validator stake --validator-pubkey ${VALIDATOR_PUBKEY_BASE64} --stake ${STAKE_AMOUNT_WEI}
+}
+
+unstake_from_validator() {
+    read -p "Enter validator public key (Base64 format): " VALIDATOR_PUBKEY_BASE64
+    read -p "Enter unstake amount (in IP): " UNSTAKE_AMOUNT_IP
+    if ! [[ "$UNSTAKE_AMOUNT_IP" =~ ^[0-9]+$ ]]; then
+        echo "Invalid amount. Please enter a numeric value."
+        return
+    fi
+    UNSTAKE_AMOUNT_WEI=$((UNSTAKE_AMOUNT_IP * 10**18))
+    /usr/local/bin/story validator unstake --validator-pubkey ${VALIDATOR_PUBKEY_BASE64} --unstake ${UNSTAKE_AMOUNT_WEI}
+}
+
+stake_on_behalf() {
+    read -p "Enter delegator public key (Base64 format): " DELEGATOR_PUBKEY_BASE64
+    read -p "Enter validator public key (Base64 format): " VALIDATOR_PUBKEY_BASE64
+    read -p "Enter stake amount (in IP): " STAKE_AMOUNT_IP
+    if ! [[ "$STAKE_AMOUNT_IP" =~ ^[0-9]+$ ]]; then
+        echo "Invalid amount. Please enter a numeric value."
+        return
+    fi
+    STAKE_AMOUNT_WEI=$((STAKE_AMOUNT_IP * 10**18))
+    /usr/local/bin/story validator stake-on-behalf --delegator-pubkey ${DELEGATOR_PUBKEY_BASE64} --validator-pubkey ${VALIDATOR_PUBKEY_BASE64} --stake ${STAKE_AMOUNT_WEI}
+}
+
+unstake_on_behalf() {
+    read -p "Enter delegator public key (Base64 format): " DELEGATOR_PUBKEY_BASE64
+    read -p "Enter validator public key (Base64 format): " VALIDATOR_PUBKEY_BASE64
+    read -p "Enter unstake amount (in IP): " UNSTAKE_AMOUNT_IP
+    if ! [[ "$UNSTAKE_AMOUNT_IP" =~ ^[0-9]+$ ]]; then
+        echo "Invalid amount. Please enter a numeric value."
+        return
+    fi
+    UNSTAKE_AMOUNT_WEI=$((UNSTAKE_AMOUNT_IP * 10**18))
+    /usr/local/bin/story validator unstake-on-behalf --delegator-pubkey ${DELEGATOR_PUBKEY_BASE64} --validator-pubkey ${VALIDATOR_PUBKEY_BASE64} --unstake ${UNSTAKE_AMOUNT_WEI}
+}
+
+add_operator() {
+    read -p "Enter operator's EVM address: " OPERATOR_ADDRESS
+    /usr/local/bin/story validator add-operator --operator ${OPERATOR_ADDRESS}
+}
+
+remove_operator() {
+    read -p "Enter operator's EVM address: " OPERATOR_ADDRESS
+    /usr/local/bin/story validator remove-operator --operator ${OPERATOR_ADDRESS}
+}
+
+set_withdrawal_address() {
+    read -p "Enter new withdrawal address: " WITHDRAWAL_ADDRESS
+    /usr/local/bin/story validator set-withdrawal-address --address ${WITHDRAWAL_ADDRESS}
 }
 
 # Setup validator
@@ -135,58 +208,6 @@ setup_validator() {
     esac
 }
 
-# Validator operations
-create_validator() {
-    read -p "Enter stake amount (in IP): " STAKE_AMOUNT_IP
-    STAKE_AMOUNT_WEI=$((STAKE_AMOUNT_IP * 10**18))
-    /usr/local/bin/story validator create --stake ${STAKE_AMOUNT_WEI}
-}
-
-stake_to_validator() {
-    read -p "Enter validator public key (Base64 format): " VALIDATOR_PUBKEY_BASE64
-    read -p "Enter stake amount (in IP): " STAKE_AMOUNT_IP
-    STAKE_AMOUNT_WEI=$((STAKE_AMOUNT_IP * 10**18))
-    /usr/local/bin/story validator stake --validator-pubkey ${VALIDATOR_PUBKEY_BASE64} --stake ${STAKE_AMOUNT_WEI}
-}
-
-unstake_from_validator() {
-    read -p "Enter validator public key (Base64 format): " VALIDATOR_PUBKEY_BASE64
-    read -p "Enter unstake amount (in IP): " UNSTAKE_AMOUNT_IP
-    UNSTAKE_AMOUNT_WEI=$((UNSTAKE_AMOUNT_IP * 10**18))
-    /usr/local/bin/story validator unstake --validator-pubkey ${VALIDATOR_PUBKEY_BASE64} --unstake ${UNSTAKE_AMOUNT_WEI}
-}
-
-stake_on_behalf() {
-    read -p "Enter delegator public key (Base64 format): " DELEGATOR_PUBKEY_BASE64
-    read -p "Enter validator public key (Base64 format): " VALIDATOR_PUBKEY_BASE64
-    read -p "Enter stake amount (in IP): " STAKE_AMOUNT_IP
-    STAKE_AMOUNT_WEI=$((STAKE_AMOUNT_IP * 10**18))
-    /usr/local/bin/story validator stake-on-behalf --delegator-pubkey ${DELEGATOR_PUBKEY_BASE64} --validator-pubkey ${VALIDATOR_PUBKEY_BASE64} --stake ${STAKE_AMOUNT_WEI}
-}
-
-unstake_on_behalf() {
-    read -p "Enter delegator public key (Base64 format): " DELEGATOR_PUBKEY_BASE64
-    read -p "Enter validator public key (Base64 format): " VALIDATOR_PUBKEY_BASE64
-    read -p "Enter unstake amount (in IP): " UNSTAKE_AMOUNT_IP
-    UNSTAKE_AMOUNT_WEI=$((UNSTAKE_AMOUNT_IP * 10**18))
-    /usr/local/bin/story validator unstake-on-behalf --delegator-pubkey ${DELEGATOR_PUBKEY_BASE64} --validator-pubkey ${VALIDATOR_PUBKEY_BASE64} --unstake ${UNSTAKE_AMOUNT_WEI}
-}
-
-add_operator() {
-    read -p "Enter operator's EVM address: " OPERATOR_ADDRESS
-    /usr/local/bin/story validator add-operator --operator ${OPERATOR_ADDRESS}
-}
-
-remove_operator() {
-    read -p "Enter operator's EVM address: " OPERATOR_ADDRESS
-    /usr/local/bin/story validator remove-operator --operator ${OPERATOR_ADDRESS}
-}
-
-set_withdrawal_address() {
-    read -p "Enter new withdrawal address: " WITHDRAWAL_ADDRESS
-    /usr/local/bin/story validator set-withdrawal-address --address ${WITHDRAWAL_ADDRESS}
-}
-
 # Main menu
 main_menu() {
     clear
@@ -201,4 +222,22 @@ main_menu() {
     echo "======================================================================="
     echo "Please select the operation to perform:"
     echo "1. Install Story node"
-    echo "2. Clear state
+    echo "2. Clear state and reinitialize"
+    echo "3. Check node status"
+    echo "4. Setup validator"
+    echo "5. Exit"
+    read -p "Enter option (1-5): " OPTION
+
+    case $OPTION in
+    1) install_story_node ;;
+    2) clear_state ;;
+    3) check_status ;;
+    4) setup_validator ;;
+    5) exit 0 ;;
+    *) echo "Invalid option." ;;
+    esac
+}
+
+# Ensure the script runs with root privileges and display the main menu
+check_root
+main_menu
