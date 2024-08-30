@@ -63,6 +63,7 @@ install_story_node() {
 
     echo "Starting Story node installation..."
 
+    # 下载和解压缩 geth 和 story 客户端
     download_and_extract "https://story-geth-binaries.s3.us-west-1.amazonaws.com/geth-public/geth-linux-amd64-0.9.2-ea9f0d2.tar.gz" "/usr/local/bin"
     download_and_extract "https://story-geth-binaries.s3.us-west-1.amazonaws.com/story-public/story-linux-amd64-0.9.11-2a25df1.tar.gz" "/usr/local/bin"
 
@@ -70,21 +71,22 @@ install_story_node() {
     echo "Story data root: ${STORY_DATA_ROOT:-/var/lib/story}"
     echo "Geth data root: ${GETH_DATA_ROOT:-/var/lib/geth}"
 
-    # Check if geth is present
+    # 检查 geth 文件是否存在
     if [ ! -f /usr/local/bin/geth ]; then
         echo "Error: /usr/local/bin/geth not found. Please check the download and extraction process."
         exit 1
     fi
 
-    # Start execution client
+    # 启动执行客户端
     pm2 start /usr/local/bin/geth --name story-geth -- --iliad --syncmode full || { echo "Failed to start story-geth"; exit 1; }
 
-    # Initialize and run consensus client
+    # 初始化并运行共识客户端
     /usr/local/bin/story init --network iliad || { echo "Failed to initialize story"; exit 1; }
     pm2 start /usr/local/bin/story --name story-client -- run || { echo "Failed to start story-client"; exit 1; }
 
     echo "Story node installation completed!"
 }
+
 
 
 # Clear and reinitialize the node
